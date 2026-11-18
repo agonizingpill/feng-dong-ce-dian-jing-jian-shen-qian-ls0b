@@ -18,6 +18,11 @@ r=redis.Redis.from_url(os.environ['REDIS_URL'],decode_responses=True)
 @asynccontextmanager
 async def lifespan(app):
     Base.metadata.create_all(engine)
+    try:
+        from .db import Session
+        from .mount_service import reconcile_history
+        with Session() as s:reconcile_history(s);s.commit()
+    except Exception:logging.exception('mount occupancy reconciliation failed')
     if os.getenv('SEED_DEMO','true')=='true':
         try:
             from scripts.seed_demo import seed

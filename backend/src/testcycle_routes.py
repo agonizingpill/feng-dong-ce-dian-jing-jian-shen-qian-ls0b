@@ -2,7 +2,7 @@ from fastapi import APIRouter,Depends,HTTPException
 from sqlalchemy import select
 from .db import db_session
 from .auth import current,writers,admin
-from .mount_models import ModelMount,RunMount
+from .mount_models import RunMount
 from .acquisition_models import AcquisitionBatch
 from .delivery_models import TunnelDelivery
 from .testcycle_schemas import MountInput,MountLinkInput,BatchInput,ReadingsInput,DeliveryInput,ReceiptInput
@@ -10,7 +10,9 @@ from .services import pack
 from . import mount_service as mounts,acquisition_service as acq,delivery_service as deliveries
 router=APIRouter()
 @router.get('/model-mounts')
-def list_mounts(s=Depends(db_session),u=Depends(current)):return [pack(x) for x in s.scalars(select(ModelMount).order_by(ModelMount.id.desc()))]
+def list_mounts(s=Depends(db_session),u=Depends(current)):return mounts.listing(s)
+@router.get('/mount-occupancies')
+def occupancies(s=Depends(db_session),u=Depends(current)):return mounts.occupancy_listing(s)
 @router.post('/model-mounts')
 def create_mount(d:MountInput,s=Depends(db_session),u=Depends(writers)):
     x=mounts.create(s,d,u);s.commit();return x

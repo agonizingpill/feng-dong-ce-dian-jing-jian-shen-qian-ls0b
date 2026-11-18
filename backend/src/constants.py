@@ -6,5 +6,6 @@ CERTIFICATE_STATES=('draft','issued')
 RUN_STATES=('planned','running','completed')
 
 MOUNT_STATES=('draft','accepted')
+OCCUPANCY_STATES=('idle','occupied','conflict')
 BATCH_STATES=('collecting','frozen')
 DELIVERY_STATES=('submitted','approved','acknowledged')

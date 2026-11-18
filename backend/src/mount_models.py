@@ -1,4 +1,4 @@
-from sqlalchemy import String,Float,ForeignKey,CheckConstraint
+from sqlalchemy import String,Float,ForeignKey,CheckConstraint,UniqueConstraint
 from sqlalchemy.orm import Mapped,mapped_column
 from .db import Base
 class ModelMount(Base):
@@ -18,3 +18,15 @@ class RunMount(Base):
     id:Mapped[int]=mapped_column(primary_key=True)
     run_id:Mapped[int]=mapped_column(ForeignKey('tunnel_runs.id'),unique=True)
     mount_id:Mapped[int]=mapped_column(ForeignKey('model_mounts.id'))
+class MountOccupancy(Base):
+    __tablename__='mount_occupancies'
+    __table_args__=(UniqueConstraint('run_id'),UniqueConstraint('active_mount_id'),CheckConstraint("state in ('active','released','conflict')"),)
+    id:Mapped[int]=mapped_column(primary_key=True)
+    run_id:Mapped[int]=mapped_column(ForeignKey('tunnel_runs.id'))
+    mount_id:Mapped[int]=mapped_column(ForeignKey('model_mounts.id'))
+    # 活动占用时等于 mount_id，释放/冲突时为 NULL；唯一索引保证一个装夹最多一场占用。
+    active_mount_id:Mapped[int|None]=mapped_column(ForeignKey('model_mounts.id'),nullable=True)
+    state:Mapped[str]=mapped_column(String(20),default='active')
+    acquired_at:Mapped[str|None]=mapped_column(String(40),nullable=True)
+    released_at:Mapped[str|None]=mapped_column(String(40),nullable=True)
+    conflict_reason:Mapped[str|None]=mapped_column(String(300),nullable=True)

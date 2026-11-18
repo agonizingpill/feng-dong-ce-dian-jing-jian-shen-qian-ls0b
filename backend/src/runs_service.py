@@ -23,6 +23,9 @@ def revise(s,id,d,u):
     audit(s,u,'修订开车核对 '+x.code);return pack(x)
 def start(s,id,u):
     x=locked(s,TunnelRun,id)
+    if x.state=='running':
+        # 开车响应丢失后的重试：不新增占用、不重写原快照，原样返回已开车记录。
+        return pack(x)
     if x.state!='planned':raise HTTPException(409,'仅计划试验可开车，不得重复启动')
     l=signed_layout(s,x.layout_id)
     if not 10<=x.speed<=50 or not -10<=x.target_angle<=20:raise HTTPException(409,'开车包线为风速10–50m/s、攻角−10至20°')
@@ -34,12 +37,21 @@ def start(s,id,u):
     for p in probes:
         if not p.enabled:raise HTTPException(409,f'{p.code}已经停用，不能开车')
         certificates.append(certificate_view(s,current_certificate(s,p)))
-    from .mount_service import readiness
+    from .mount_service import readiness,acquire
     mounting=readiness(s,x)
     now=datetime.now(timezone.utc).isoformat()
-    x.snapshot=deepcopy({'layout':pack_layout(s,l),'probes':[pack(p) for p in probes],'certificates':certificates,'speed':x.speed,'target_angle':x.target_angle,'checklist':x.checklist,'checked_at':now,'mounting':mounting})
+    # 计划关联不占用；开车这一刻才取得装夹独占占用，失败则整个开车事务回滚。
+    occupancy=acquire(s,x,now,u)
+    x.snapshot=deepcopy({'layout':pack_layout(s,l),'probes':[pack(p) for p in probes],'certificates':certificates,'speed':x.speed,'target_angle':x.target_angle,'checklist':x.checklist,'checked_at':now,'mounting':mounting,'occupancy':occupancy})
     x.state='running';x.started_at=now;x.started_by=u.email;audit(s,u,'负责人开车 '+x.code);return pack(x)
 def finish(s,id,d,u):
     x=locked(s,TunnelRun,id)
+    if x.state=='completed':
+        # 完结响应丢失后的重试：保留原完结时刻与说明，不重复释放、不改写原快照。
+        return pack(x)
     if x.state!='running':raise HTTPException(409,'只有运行中的试验可以完结，不能重复收尾')
-    x.state='completed';x.completed_at=datetime.now(timezone.utc).isoformat();x.result_note=d.result_note;audit(s,u,'完结风洞试验 '+x.code);return pack(x)
+    now=datetime.now(timezone.utc).isoformat()
+    x.state='completed';x.completed_at=now;x.result_note=d.result_note
+    from .mount_service import release
+    release(s,x,now,u)
+    audit(s,u,'完结风洞试验 '+x.code);return pack(x)

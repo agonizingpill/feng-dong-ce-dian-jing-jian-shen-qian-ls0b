@@ -124,3 +124,13 @@ MIT License。
 seed只补基础测点/历史扫角/演示证书，不自动审签或制造合格采样、装夹、回执；按剧本真实操作产生追加数据。重复seed保留人工装夹修订、实际序列、冻结状态、回执和原快照。v1/v2历史证据保留，追加验证在 `../../test-artifacts/gb-1028/v3/`。没有硬件采集接口/实时流/升力反演、自动停机、撤销冻结或真实文档外发；不将人工输入示例解释为真实风洞测试数据。
 
 数据库使用READ COMMITTED，领域状态与父试验行锁继续串行化写入。采集冻结先读取批次再等试验锁，因此冻结汇总必须看到前一持锁事务最新提交的实样；不能沿用MySQL默认REPEATABLE READ在等锁前建立的旧快照。强制持锁2秒的实际并发测试验证：10Pa被重写为99Pa后冻结读到99Pa；完整采集被改成单通道后冻结拒绝，见v3/current-read-race-results.json。
+
+## 装夹独占使用（v4）
+
+同一套装夹同一时刻只能支撑一场运行。占用簿 `MountOccupancy` 以 `run_id` 唯一和 `active_mount_id` 唯一两个约束落地：每场试验最多一条占用记录，每个装夹最多一条活动占用（`state='active'`），`active_mount_id` 为 `NULL` 时表示已释放或历史冲突。`POST /run-mounts` 的计划关联只表达“准备用哪套装夹”，不写入占用；只有负责人 `POST /tunnel-runs/{id}/start` 在通过原证书、包线、联锁和载荷校核之后才取得占用，`POST /tunnel-runs/{id}/complete` 在完结时释放。原有载荷与联锁检查保持原顺序与报错，占用检查附加在其后。
+
+并发语义：开车事务按 试验行 → 装夹行 → 占用行 的顺序加锁，两场使用同一装夹的开车被串行化，后到者读到活动占用即 409；唯一索引兜底，并发抢先写入时整单回滚，不落半场运行。完结只改动本场占用行并置空 `active_mount_id`，因此“A 完结、B 开车”交错不会产生双占：B 等锁后看到已释放再取得。`/start` 对已 `running` 的试验和 `/complete` 对已 `completed` 的试验做幂等重试：原样返回已开车/已完结记录，不新增占用行、不重写 `snapshot`、`started_at`、`completed_at` 与 `result_note`。
+
+历史升级：启动时 `reconcile_history` 按开车快照的 `mounting.mount.id` 接入仍在 `running` 的旧试验。同一装夹只有一场运行时建立活动占用；同一装夹已有多场历史运行时全部列为 `conflict`，列明冲突试验编号并封锁新开车，逐场完结才解除；快照缺失或无法解析装夹依据的旧记录不猜配、不建立占用。该过程可重复执行，只更新已有占用行，不重复插入。
+
+`GET /model-mounts` 新增 `occupancy_state`（`idle`/`occupied`/`conflict`）、`occupied_by`（试验编号与取得时刻）、`conflict_runs` 与 `conflict_reason`；`GET /mount-occupancies` 返回占用簿明细。前端装夹页显示装夹空闲/占用试验/冲突原因，试验页显示所选计划装夹的当前占用状态。历史快照原样保留，新增占用不写回旧 `snapshot`。回归覆盖：计划关联不占用、并发两场只放行一场、A完结与B开车交错不双占、开车/完结重试幂等、唯一索引兜底，以及单场/多场/缺依据三类历史升级。
